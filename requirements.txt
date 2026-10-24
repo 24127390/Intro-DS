@@ -2,3 +2,5 @@ pandas
 requests
 jupyter
 pytest
+arxiv
+beautifulsoup4
