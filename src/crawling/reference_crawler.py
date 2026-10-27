@@ -14,6 +14,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from tqdm import tqdm
+
 S2_BASE_URL = "https://api.semanticscholar.org/graph/v1/paper"
 S2_FIELDS = "references.title,references.authors,references.publicationDate,references.externalIds,references.paperId"
 MIN_REQUEST_INTERVAL = 1.1  # > 1 req/sec
@@ -232,10 +234,13 @@ def crawl_references_for_corpus(
     crawled_count = 0
     failed_count = 0
 
-    for aid in arxiv_ids:
+    pbar = tqdm(arxiv_ids, desc="Crawling References (S2 API)", unit="paper")
+
+    for aid in pbar:
         if aid in completed or (output_dir / aid / "refs.json").exists():
             cached_count += 1
             completed.add(aid)
+            pbar.set_postfix({"cached": cached_count, "new": crawled_count, "failed": failed_count})
             continue
 
         ok = crawl_references_for_paper(aid, output_dir=output_dir, api_key=api_key)
@@ -244,6 +249,8 @@ def crawl_references_for_corpus(
             completed.add(aid)
         else:
             failed_count += 1
+
+        pbar.set_postfix({"cached": cached_count, "new": crawled_count, "failed": failed_count})
 
         # Periodically save checkpoint
         if (crawled_count + cached_count) % 20 == 0:
