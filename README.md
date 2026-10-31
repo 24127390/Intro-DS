@@ -16,16 +16,28 @@ This project is developed for the Introduction to Data Science course. It focuse
 
 ## Project Structure
 
-- `config/`: Shared configuration and assigned arXiv ID ranges.
-- `data/`: Raw, intermediate, and processed data.
-- `src/crawling/`: Paper and metadata collection.
-- `src/latex_parser/`: LaTeX parsing and document structure extraction.
-- `src/preprocessing/`: Data cleaning and normalization.
-- `src/matching/`: Reference matching and evaluation.
-- `tests/`: Automated tests.
-- `notebooks/`: Exploratory analysis.
-- `docs/`: Technical documentation.
-
+Intro-DS/
+├── config/              # Shared configuration
+├── data/
+│   ├── raw/             # Original collected data
+│   ├── interim/         # Intermediate data
+│   ├── processed/       # Cleaned and processed data
+│   └── src/             # Currently existing folder; purpose to be clarified
+├── docs/                # Technical documentation
+├── notebooks/           # Jupyter notebooks for milestones
+├── src/
+│   ├── crawling/        # arXiv paper crawling
+│   ├── latexParser/     # LaTeX parsing
+│   ├── matching/        # Reference matching
+│   ├── preprocessing/   # Data preprocessing
+│   ├── te/              # Purpose to be clarified
+│   └── utils/           # Shared utilities
+├── tests/               # Automated tests
+├── _config.yml
+├── _toc.yml
+├── .gitignore
+├── README.md
+└── requirements.txt
 ## Setup
 
 Create and activate a Python virtual environment, then install dependencies:
