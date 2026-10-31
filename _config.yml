@@ -3,3 +3,11 @@ author: Your Team Name
 
 execute:
   execute_notebooks: off
+
+exclude_patterns:
+  - ".venv/**"
+  - "_build/**"
+  - ".virtual_documents/**"
+  - "anaconda_projects/**"
+  - "README.md"
+  - "data/**"
