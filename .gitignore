@@ -4,3 +4,4 @@ _build/
 
 # Local environment/project files
 anaconda_projects/
+.venv/
