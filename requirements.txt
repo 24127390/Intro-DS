@@ -4,3 +4,4 @@ jupyter
 pytest
 arxiv
 beautifulsoup4
+jupyter-book
