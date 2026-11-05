@@ -2,6 +2,8 @@ pandas
 requests
 jupyter
 pytest
+arxiv
+beautifulsoup4
 pyarrow
 matplotlib
 psutil
