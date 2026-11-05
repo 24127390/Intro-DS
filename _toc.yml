@@ -1,0 +1,5 @@
+format: jb-book
+root: notebooks/intro
+chapters:
+  - file: notebooks/01_milestone1_crawling
+  - file: notebooks/02_milestone2_latexParsing

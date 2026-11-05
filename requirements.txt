@@ -4,4 +4,7 @@ jupyter
 pytest
 arxiv
 beautifulsoup4
-jupyter-book
+pyarrow
+matplotlib
+psutil
+jupyter-book<2
