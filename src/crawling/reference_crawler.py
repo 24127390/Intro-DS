@@ -19,6 +19,7 @@ from tqdm import tqdm
 S2_BASE_URL = "https://api.semanticscholar.org/graph/v1/paper"
 S2_FIELDS = "references.title,references.authors,references.publicationDate,references.externalIds,references.paperId"
 MIN_REQUEST_INTERVAL = 1.1  # > 1 req/sec
+AUTH_MIN_INTERVAL = 1.35  # Safe interval for free 1 RPS API key tier
 WINDOW_SECONDS = 300.0  # 5 minutes
 MAX_REQUESTS_PER_WINDOW = 95  # Safe margin below unauthenticated 100 limit
 
@@ -121,13 +122,13 @@ def fetch_paper_references(
 
     req = urllib.request.Request(url, headers=headers)
     max_retries = 4
-    backoff = 10.0
+    backoff = 2.0
 
     for attempt in range(max_retries):
         if not key:
             _rate_limiter.wait()
         else:
-            time.sleep(0.5)
+            time.sleep(AUTH_MIN_INTERVAL)
 
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
@@ -253,7 +254,7 @@ def crawl_references_for_corpus(
         pbar.set_postfix({"cached": cached_count, "new": crawled_count, "failed": failed_count})
 
         # Periodically save checkpoint
-        if (crawled_count + cached_count) % 20 == 0:
+        if (crawled_count + cached_count) % 5 == 0:
             with checkpoint_file.open("w", encoding="utf-8") as f:
                 json.dump(list(completed), f)
 

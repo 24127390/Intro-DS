@@ -95,7 +95,9 @@ def run_pipeline(stage: str = "all", limit: int = 0, offset: int = 0) -> None:
         dl_res = download_sources_for_corpus(arxiv_ids, output_dir=CORPUS_DIR)
         print(
             f"Source download completed in {time.perf_counter() - t0:.2f}s | "
-            f"Completed papers: {dl_res['completed_papers']}/{dl_res['total_papers']}"
+            f"Completed: {dl_res['completed_papers']}/{dl_res['total_papers']} "
+            f"(Cached: {dl_res.get('cached_papers', 0)}, New: {dl_res.get('new_papers', 0)}, "
+            f"Failed: {dl_res.get('failed_papers', 0)})"
         )
 
     # Stage: References Crawling

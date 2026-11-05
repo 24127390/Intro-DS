@@ -14,6 +14,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 import requests
+from tqdm import tqdm
 
 EXPORT_SRC_BASE_URL = "https://export.arxiv.org/src"
 FALLBACK_SRC_BASE_URL = "https://arxiv.org/src"
@@ -233,8 +234,18 @@ def download_sources_for_paper(
 
     versions: List[str] = meta.get("versions", [f"{base_id}v1"])
     success_count = 0
+    all_cached = True
 
     for idx, v_id in enumerate(versions, start=1):
+        version_dir = output_dir / base_id / f"v{idx}"
+        is_cached = version_dir.exists() and (
+            any(version_dir.glob("*.tex"))
+            or any(version_dir.glob("*.bib"))
+            or (version_dir / ".no_latex").exists()
+        )
+        if not is_cached:
+            all_cached = False
+
         ok = download_paper_version(
             version_id=v_id,
             base_id=base_id,
@@ -249,6 +260,7 @@ def download_sources_for_paper(
         "base_id": base_id,
         "total_versions": len(versions),
         "downloaded_versions": success_count,
+        "is_cached": all_cached if versions else False,
     }
 
 
@@ -269,13 +281,34 @@ def download_sources_for_corpus(
     """
     total = len(arxiv_ids)
     completed = 0
+    cached_count = 0
+    new_count = 0
+    failed_count = 0
 
-    for aid in arxiv_ids:
+    pbar = tqdm(arxiv_ids, desc="Downloading LaTeX Sources", unit="paper")
+    for aid in pbar:
         res = download_sources_for_paper(aid, output_dir=output_dir, delay=delay)
-        if res.get("status") != "no_metadata":
+        if res.get("status") == "no_metadata":
+            failed_count += 1
+        elif res.get("downloaded_versions", 0) > 0:
             completed += 1
+            if res.get("is_cached", False):
+                cached_count += 1
+            else:
+                new_count += 1
+        else:
+            failed_count += 1
+
+        pbar.set_postfix({
+            "cached": cached_count,
+            "new": new_count,
+            "failed": failed_count,
+        })
 
     return {
         "total_papers": total,
         "completed_papers": completed,
+        "cached_papers": cached_count,
+        "new_papers": new_count,
+        "failed_papers": failed_count,
     }
