@@ -1,0 +1,5 @@
+arxiv_id,status,reference_count,arxiv_reference_count,elapsed_seconds,error
+2603.10580,error,0,0,34.584,429 Client Error:  for url: https://api.semanticscholar.org/graph/v1/paper/arXiv:2603.10580?fields=references.paperId%2Creferences.title%2Creferences.authors%2Creferences.year%2Creferences.publicationDate%2Creferences.venue%2Creferences.externalIds
+2603.10581,success,100,81,11.232,
+2603.10580,error,0,0,20.347,429 Client Error:  for url: https://api.semanticscholar.org/graph/v1/paper/arXiv:2603.10580?fields=references.paperId%2Creferences.title%2Creferences.authors%2Creferences.year%2Creferences.publicationDate%2Creferences.venue%2Creferences.externalIds
+2603.10580,error,0,0,21.474,429 Client Error:  for url: https://api.semanticscholar.org/graph/v1/paper/arXiv:2603.10580?fields=references.paperId%2Creferences.title%2Creferences.authors%2Creferences.year%2Creferences.publicationDate%2Creferences.venue%2Creferences.externalIds

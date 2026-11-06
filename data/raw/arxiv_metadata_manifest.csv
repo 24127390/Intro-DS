@@ -1,0 +1,4 @@
+id,status,attempts,elapsed_seconds,record_source,error
+2603.10580v1,success,1,1.446,arxiv_api,
+2603.10581v1,success,1,1.446,arxiv_api,
+2603.10581v2,success,1,1.446,arxiv_api,

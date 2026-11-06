@@ -1,4 +1,3 @@
-
 import csv
 import json
 import random
@@ -17,9 +16,9 @@ from urllib3.util.retry import Retry
 # CONFIGURATION
 # ==================================================
 
-PREFIX = "2602"
-START_ID = 14870
-END_ID = 19868  # Inclusive: 4,999 base IDs
+PREFIX = "2603"
+START_ID = 10580
+END_ID = 15579 
 
 BATCH_SIZE = 50
 DELAY_SECONDS = 3
@@ -28,12 +27,12 @@ MAX_BATCH_ATTEMPTS = 5
 REQUEST_TIMEOUT = 30
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-OUTPUT_DIR = PROJECT_ROOT / "data" / "raw"
+OUTPUT_DIR = PROJECT_ROOT / "data" / "raw" / "Hung"
 
-METADATA_FILE = OUTPUT_DIR / "arxiv_metadata_2602_all_versions.jsonl"
-HISTORY_FILE = OUTPUT_DIR / "arxiv_history_2602.jsonl"
-HISTORY_STATUS_FILE = OUTPUT_DIR / "arxiv_history_status_2602.csv"
-FAILED_FILE = OUTPUT_DIR / "arxiv_failed_2602.jsonl"
+METADATA_FILE = OUTPUT_DIR / "arxiv_metadata_2603_all_versions.jsonl"
+HISTORY_FILE = OUTPUT_DIR / "arxiv_history_2603.jsonl"
+HISTORY_STATUS_FILE = OUTPUT_DIR / "arxiv_history_status_2603.csv"
+FAILED_FILE = OUTPUT_DIR / "arxiv_failed_2603.jsonl"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
