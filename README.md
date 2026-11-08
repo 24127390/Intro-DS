@@ -21,8 +21,7 @@ Intro-DS/
 ├── data/
 │   ├── raw/             # Original collected data
 │   ├── interim/         # Intermediate data
-│   ├── processed/       # Cleaned and processed data
-│   └── src/             # Currently existing folder; purpose to be clarified
+│   └── processed/       # Cleaned and processed data
 ├── docs/                # Technical documentation
 ├── notebooks/           # Jupyter notebooks for milestones
 ├── src/
@@ -30,7 +29,6 @@ Intro-DS/
 │   ├── latexParser/     # LaTeX parsing
 │   ├── matching/        # Reference matching
 │   ├── preprocessing/   # Data preprocessing
-│   ├── te/              # Purpose to be clarified
 │   └── utils/           # Shared utilities
 ├── tests/               # Automated tests
 ├── _config.yml
@@ -39,7 +37,7 @@ Intro-DS/
 ├── README.md
 └── requirements.txt
 ## Setup
-
+Python **3.11** is required (same version as the CI workflow).
 Create and activate a Python virtual environment, then install dependencies:
 
 ```bash
