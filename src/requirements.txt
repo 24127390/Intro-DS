@@ -1,0 +1,27 @@
+# Dependencies to reproduce the pipeline (Python 3.11)
+# Install: pip install -r src/requirements.txt
+
+# Milestone 1 - crawling
+requests
+arxiv
+beautifulsoup4
+
+# Milestone 1/2 - tables, parsing, analysis
+pandas
+numpy
+pyarrow
+
+# Benchmark helper (src/utils/benchmark.py)
+psutil
+
+# Report (Jupyter Book) and notebooks
+matplotlib
+jupyter
+jupyter-book<2
+
+# Tests
+pytest
+
+# Milestone 3 (add when the matching code is written), e.g.:
+# scikit-learn
+# huggingface_hub
