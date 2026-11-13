@@ -29,7 +29,8 @@ Intro-DS/
 │   ├── latexParser/     # LaTeX parsing
 │   ├── matching/        # Reference matching
 │   ├── preprocessing/   # Data preprocessing
-│   └── utils/           # Shared utilities
+│   ├── utils/           # Shared utilities
+│   └── requirements.txt # Dependencies to reproduce the environment
 ├── tests/               # Automated tests
 ├── _config.yml
 ├── _toc.yml
@@ -59,11 +60,12 @@ source .venv/bin/activate
 Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+pip install -r src/requirements.txt
 ```
 
 ## Usage
 
+### Milestone 1 — Data crawling
 The source/reference crawler reads the assigned ID ranges from
 `config/aXirPaperID`. It resumes from existing checkpoints and writes raw outputs
 and per-paper/per-version manifests under `data/raw`:
@@ -112,6 +114,47 @@ the Milestone 1 schemas; the references table includes only records with an
 arXiv identifier, while all returned records remain in the raw JSON files. It
 also consolidates the per-stage logs into `data/processed/crawl_manifest.csv`
 for notebook coverage analysis.
+
+### Milestone 2 — Hierarchical parsing and standardization
+
+The parser reads the `.tex`/`.bib` sources in `data/raw/sources/<arxiv_id>/v<version>/`.
+For each version it finds the root file (the one with `\documentclass`), follows
+`\input`/`\include` transitively, builds the hierarchy, normalizes the content and
+deduplicates elements across versions.
+
+Main modules in `src/latexParser/`:
+
+- `file_resolver.py` — `LatexFileResolver`: root detection and multi-file gathering.
+- `structure_extractor.py` — `PublicationHierarchyBuilder`: hierarchy, sentence splitting,
+  cleanup, math normalization and element deduplication.
+
+```bash
+# TODO: add the command of the parser entry point once it is finished, e.g.
+# python -m src.latexParser.run
+```
+
+Planned outputs in `data/processed/`: `elements.parquet`, `hierarchy.parquet`,
+`bibtex.parquet` and `parse_manifest.csv` (status `parsed` / `empty` / `failed` per version).
+
+### Milestone 3 — Reference matching
+
+TODO: this section will be completed with the matching pipeline (code in `src/matching/`):
+
+- **Labels:** format and location of the ground truth (manual and automatic pools).
+- **Features:** list of engineered features with a short justification for each.
+- **Model and evaluation:** chosen supervised formulation and MRR@5 on the test set.
+- **Run:** commands to train and evaluate, and to build the `predictions` table.
+- **Hugging Face:** how the Parquet tables are exported and published.
+
+### Benchmark
+
+Wall time, peak/average RAM and output size of any stage can be measured with
+`src/utils/benchmark.py`. Results are appended to `data/processed/benchmarks.csv`:
+
+```bash
+python -m src.utils.benchmark --label m2_parser \
+    --output-dir data/processed --n-items <number_of_papers> -- <command>
+```
 
 ## Data and Reproducibility
 
