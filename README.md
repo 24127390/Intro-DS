@@ -87,14 +87,32 @@ python -m src.crawling.source_and_references --semantic-scholar
 python -m src.crawling.build_tables
 ```
 
-Run `--metadata --source --semantic-scholar` together to discover any missing
-version histories and execute the remaining steps. For a small smoke run, add
-`--limit 2` to any command. arXiv and Semantic Scholar requests are paced at
-3.1 seconds per request, and Semantic Scholar can take many hours for all
-assigned IDs. Run only one crawler instance at a time per shared network/IP to
-avoid exceeding provider rate limits. An optional Semantic Scholar API key can
-be provided through the `S2_API_KEY` environment variable; do not commit the
-key.
+Run all four stages together to discover missing version histories, fetch
+metadata, download sources, and crawl references. Semantic Scholar runs in a
+background thread while the arXiv stages run. For a small smoke run, add
+`--limit 20`:
+
+```bash
+python -m src.crawling.source_and_references --discover --metadata --source --semantic-scholar --limit 20
+```
+
+By default, arXiv and Semantic Scholar requests are paced at 3.1 seconds per
+request. To request a Semantic Scholar API key, use the
+[Semantic Scholar API key form](https://www.semanticscholar.org/product/api#api-key-form).
+Set the key in the environment before running the crawler; with `S2_API_KEY`
+set, Semantic Scholar requests use a 1.1-second interval:
+
+```powershell
+$env:S2_API_KEY = "your-api-key"
+```
+
+```bash
+export S2_API_KEY="your-api-key"
+```
+
+Do not commit the key. Semantic Scholar can take many hours for all assigned
+IDs. Run only one crawler instance at a time per shared network/IP to avoid
+exceeding provider rate limits.
 
 Source files are stored under `data/raw/sources/<arxiv_id>/v<version>/`.
 `source_download_manifest.csv` distinguishes compressed archive size from the

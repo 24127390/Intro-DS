@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 import os
@@ -12,6 +13,7 @@ import shutil
 import tarfile
 import tempfile
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path, PurePosixPath
@@ -35,8 +37,10 @@ METADATA_MANIFEST = RAW_DIR / "arxiv_metadata_manifest.csv"
 REQUEST_TIMEOUT = 60
 MAX_ATTEMPTS = 5
 METADATA_BATCH_SIZE = 50
+DISCOVERY_BATCH_SIZE = 100
 ARXIV_REQUEST_INTERVAL = 3.1
 SEMANTIC_SCHOLAR_REQUEST_INTERVAL = 3.1
+SEMANTIC_SCHOLAR_KEY_REQUEST_INTERVAL = 1.1
 RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 VERSION_PATTERN = re.compile(r"^(?P<base>.+)v(?P<version>\d+)$")
 
@@ -212,6 +216,54 @@ def _write_history(
         existing.add(base_id)
 
 
+def _discover_versions_batch(
+    base_ids: List[str],
+    session: requests.Session,
+    pacer: RequestPacer,
+) -> Dict[str, List[str]]:
+    """Fetch latest version identifiers for a batch using the arXiv API."""
+    if not base_ids:
+        return {}
+
+    response = _get_with_retries(
+        session,
+        "https://export.arxiv.org/api/query",
+        {"id_list": ",".join(base_ids), "max_results": len(base_ids)},
+        pacer,
+    )
+    try:
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+    finally:
+        response.close()
+
+    atom = "{http://www.w3.org/2005/Atom}"
+    wanted = set(base_ids)
+    latest_versions = {}
+    for entry in root.findall(f"{atom}entry"):
+        entry_id = entry.findtext(f"{atom}id")
+        if not entry_id:
+            continue
+        match = VERSION_PATTERN.fullmatch(entry_id.rstrip("/").rsplit("/", 1)[-1])
+        if not match:
+            continue
+        base_id = match.group("base")
+        if base_id not in wanted:
+            continue
+        latest_versions[base_id] = max(
+            latest_versions.get(base_id, 0), int(match.group("version"))
+        )
+
+    return {
+        base_id: [
+            f"{base_id}v{version}"
+            for version in range(1, latest_versions[base_id] + 1)
+        ]
+        for base_id in base_ids
+        if base_id in latest_versions
+    }
+
+
 def discover_assigned_versions(
     base_ids: Iterable[str],
     session: Optional[requests.Session] = None,
@@ -228,63 +280,99 @@ def discover_assigned_versions(
     http.headers.update({"User-Agent": "IntroDSSourceCrawler/1.0 (academic project)"})
     pacer = RequestPacer(interval)
 
+    pending_ids = []
+    pending_set = set()
+    for base_id in base_ids:
+        if (
+            base_id not in histories
+            and statuses.get(base_id, {}).get("status") != "not_found"
+            and base_id not in pending_set
+        ):
+            pending_ids.append(base_id)
+            pending_set.add(base_id)
+    indexes = {}
     for index, base_id in enumerate(base_ids, start=1):
-        if base_id in histories:
-            continue
-        if statuses.get(base_id, {}).get("status") == "not_found":
-            continue
-        started = time.perf_counter()
-        error_message = ""
-        status = "error"
-        versions = []
-        try:
-            response = _get_with_retries(
-                http, f"https://arxiv.org/abs/{base_id}", None, pacer
-            )
-            try:
-                if response.status_code == 404:
-                    status = "not_found"
-                else:
-                    response.raise_for_status()
-                    from bs4 import BeautifulSoup
+        indexes.setdefault(base_id, index)
 
-                    history = BeautifulSoup(
-                        response.text, "html.parser"
-                    ).select_one("div.submission-history")
-                    if history is None:
-                        raise ValueError("Submission history missing from arXiv page")
-                    numbers = {
-                        int(number)
-                        for number in re.findall(
-                            r"\bv(\d+)\b", history.get_text(" ", strip=True)
-                        )
-                    }
-                    if not numbers:
-                        raise ValueError("No version number found on arXiv page")
-                    versions = [
-                        f"{base_id}v{number}"
-                        for number in range(1, max(numbers) + 1)
-                    ]
+    for offset in range(0, len(pending_ids), DISCOVERY_BATCH_SIZE):
+        batch = pending_ids[offset:offset + DISCOVERY_BATCH_SIZE]
+        batch_started = time.perf_counter()
+        batch_error = ""
+        try:
+            batch_histories = _discover_versions_batch(batch, http, pacer)
+        except (requests.RequestException, ValueError, ET.ParseError) as error:
+            batch_histories = {}
+            batch_error = str(error)
+
+        for base_id in batch:
+            started = time.perf_counter()
+            error_message = ""
+            status = "error"
+            versions = batch_histories.get(base_id, [])
+            try:
+                if versions:
                     _write_history(base_id, versions, canonical_ids)
                     histories[base_id] = versions
                     status = "success"
-            finally:
-                response.close()
-        except (requests.RequestException, ValueError) as error:
-            error_message = str(error)
+                    elapsed = time.perf_counter() - batch_started
+                else:
+                    response = _get_with_retries(
+                        http, f"https://arxiv.org/abs/{base_id}", None, pacer
+                    )
+                    try:
+                        if response.status_code == 404:
+                            status = "not_found"
+                        else:
+                            response.raise_for_status()
+                            from bs4 import BeautifulSoup
 
-        _append_manifest(
-            DISCOVERY_MANIFEST,
-            ["base_id", "status", "version_count", "elapsed_seconds", "error"],
-            {
-                "base_id": base_id,
-                "status": status,
-                "version_count": len(versions),
-                "elapsed_seconds": round(time.perf_counter() - started, 3),
-                "error": error_message,
-            },
-        )
-        print(f"Discovery {index}/{len(base_ids)}: {base_id} [{status}]")
+                            history = BeautifulSoup(
+                                response.text, "html.parser"
+                            ).select_one("div.submission-history")
+                            if history is None:
+                                raise ValueError(
+                                    "Submission history missing from arXiv page"
+                                )
+                            numbers = {
+                                int(number)
+                                for number in re.findall(
+                                    r"\bv(\d+)\b",
+                                    history.get_text(" ", strip=True),
+                                )
+                            }
+                            if not numbers:
+                                raise ValueError("No version number found on arXiv page")
+                            versions = [
+                                f"{base_id}v{number}"
+                                for number in range(1, max(numbers) + 1)
+                            ]
+                            _write_history(base_id, versions, canonical_ids)
+                            histories[base_id] = versions
+                            status = "success"
+                    finally:
+                        response.close()
+                    elapsed = time.perf_counter() - started
+            except (requests.RequestException, ValueError) as error:
+                error_message = str(error)
+                if batch_error:
+                    error_message = f"Batch API failed ({batch_error}); fallback failed ({error_message})"
+                elapsed = time.perf_counter() - started
+
+            _append_manifest(
+                DISCOVERY_MANIFEST,
+                ["base_id", "status", "version_count", "elapsed_seconds", "error"],
+                {
+                    "base_id": base_id,
+                    "status": status,
+                    "version_count": len(versions),
+                    "elapsed_seconds": round(elapsed, 3),
+                    "error": error_message,
+                },
+            )
+            print(
+                f"Discovery {indexes[base_id]}/{len(base_ids)}: "
+                f"{base_id} [{status}]"
+            )
     return histories
 
 
@@ -703,7 +791,7 @@ def crawl_semantic_scholar(
     session: Optional[requests.Session] = None,
     output_dir: Path = SEMANTIC_SCHOLAR_DIR,
     manifest_path: Path = SEMANTIC_SCHOLAR_MANIFEST,
-    interval: float = SEMANTIC_SCHOLAR_REQUEST_INTERVAL,
+    interval: Optional[float] = None,
 ) -> None:
     """Save all S2 reference records per paper, including non-arXiv references."""
     output_dir, manifest_path = Path(output_dir), Path(manifest_path)
@@ -713,6 +801,12 @@ def crawl_semantic_scholar(
     api_key = os.environ.get("S2_API_KEY")
     if api_key:
         http.headers.update({"x-api-key": api_key})
+    if interval is None:
+        interval = (
+            SEMANTIC_SCHOLAR_KEY_REQUEST_INTERVAL
+            if api_key
+            else SEMANTIC_SCHOLAR_REQUEST_INTERVAL
+        )
     pacer = RequestPacer(interval)
     base_ids = list(base_ids)
 
@@ -788,15 +882,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.limit:
         base_ids = base_ids[:args.limit]
 
-    histories = _load_histories(base_ids)
-    if args.discover or args.metadata or args.source:
-        histories = discover_assigned_versions(base_ids)
-    if args.metadata:
-        crawl_arxiv_metadata(histories)
-    if args.source:
-        download_sources(histories)
-    if args.semantic_scholar:
-        crawl_semantic_scholar(base_ids)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        semantic_scholar_future = None
+        if args.semantic_scholar:
+            semantic_scholar_future = executor.submit(
+                crawl_semantic_scholar, base_ids
+            )
+
+        try:
+            histories = _load_histories(base_ids)
+            if args.discover or args.metadata or args.source:
+                histories = discover_assigned_versions(base_ids)
+            if args.metadata:
+                crawl_arxiv_metadata(histories)
+            if args.source:
+                download_sources(histories)
+        finally:
+            if semantic_scholar_future is not None:
+                semantic_scholar_future.result()
     return 0
 
 

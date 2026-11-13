@@ -3,6 +3,7 @@ import io
 import json
 import sys
 import tarfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -38,6 +39,14 @@ class _Response:
         self.headers = {}
         self._payload = payload
         self._body = body
+
+    @property
+    def content(self):
+        return self._body
+
+    @property
+    def text(self):
+        return self._body.decode("utf-8")
 
     def iter_content(self, chunk_size):
         yield self._body
@@ -173,6 +182,76 @@ def test_version_discovery_reuses_nested_member_history(tmp_path, monkeypatch):
     assert histories == {"2602.14870": ["2602.14870v1"]}
 
 
+def test_version_discovery_batches_api_results_and_falls_back_for_missing_ids(
+    tmp_path, monkeypatch
+):
+    base_ids = [f"2603.{number:05d}" for number in range(101)]
+    entries = "".join(
+        f"<entry><id>https://arxiv.org/abs/{base_id}v"
+        f"{3 if index == 0 else 1}</id></entry>"
+        for index, base_id in enumerate(base_ids[:100])
+    )
+    api_response = (
+        f'<feed xmlns="http://www.w3.org/2005/Atom">{entries}</feed>'
+    ).encode()
+    empty_api_response = (
+        b'<feed xmlns="http://www.w3.org/2005/Atom"></feed>'
+    )
+    fallback_html = (
+        b'<div class="submission-history"> '
+        b'Submitted on 1 Mar 2026 (v1), 2 Mar 2026 (v2)</div>'
+    )
+    session = _Session([
+        _Response(body=api_response),
+        _Response(body=empty_api_response),
+        _Response(body=fallback_html),
+    ])
+    monkeypatch.setattr(crawler, "RAW_DIR", tmp_path)
+    monkeypatch.setattr(crawler, "DISCOVERY_FILE", tmp_path / "history.jsonl")
+    monkeypatch.setattr(
+        crawler, "DISCOVERY_MANIFEST", tmp_path / "discovery_status.csv"
+    )
+
+    histories = crawler.discover_assigned_versions(
+        base_ids, session=session, interval=0
+    )
+
+    assert len(histories) == 101
+    assert histories[base_ids[0]] == [
+        "2603.00000v1", "2603.00000v2", "2603.00000v3"
+    ]
+    assert histories[base_ids[99]] == ["2603.00099v1"]
+    assert histories[base_ids[100]] == ["2603.00100v1", "2603.00100v2"]
+    assert len(session.calls) == 3
+    assert session.calls[0][0] == "https://export.arxiv.org/api/query"
+    assert session.calls[0][1]["params"] == {
+        "id_list": ",".join(base_ids[:100]),
+        "max_results": 100,
+    }
+    assert session.calls[1][1]["params"] == {
+        "id_list": base_ids[100],
+        "max_results": 1,
+    }
+    assert session.calls[2][0] == f"https://arxiv.org/abs/{base_ids[100]}"
+    with (tmp_path / "discovery_status.csv").open(
+        encoding="utf-8", newline=""
+    ) as file:
+        rows = list(csv.DictReader(file))
+    assert len(rows) == 101
+    assert {row["status"] for row in rows} == {"success"}
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "history.jsonl").read_text().splitlines()
+    ]
+    assert [record["base_id"] for record in records] == base_ids
+
+    resumed_session = _Session([])
+    assert crawler.discover_assigned_versions(
+        base_ids, session=resumed_session, interval=0
+    ) == histories
+    assert resumed_session.calls == []
+
+
 def test_extract_archive_keeps_only_tex_and_bib(tmp_path):
     archive = io.BytesIO(_archive_bytes({
         "paper/main.tex": r"\documentclass{article}",
@@ -263,6 +342,89 @@ def test_semantic_scholar_saves_all_references_and_manifest(tmp_path):
     assert row["status"] == "success"
     assert row["reference_count"] == "2"
     assert row["arxiv_reference_count"] == "1"
+
+
+def test_semantic_scholar_interval_depends_on_api_key(tmp_path, monkeypatch):
+    intervals = []
+
+    class _RecordingPacer:
+        def __init__(self, interval):
+            intervals.append(interval)
+
+        def wait(self):
+            pass
+
+    monkeypatch.setattr(crawler, "RequestPacer", _RecordingPacer)
+    monkeypatch.setenv("S2_API_KEY", "test-key")
+    keyed_session = _Session(_Response(payload={"data": []}))
+    crawler.crawl_semantic_scholar(
+        ["2602.00001"],
+        session=keyed_session,
+        output_dir=tmp_path / "keyed",
+        manifest_path=tmp_path / "keyed.csv",
+    )
+    assert intervals[-1] == 1.1
+    assert keyed_session.headers["x-api-key"] == "test-key"
+
+    monkeypatch.delenv("S2_API_KEY")
+    crawler.crawl_semantic_scholar(
+        ["2602.00002"],
+        session=_Session(_Response(payload={"data": []})),
+        output_dir=tmp_path / "unkeyed",
+        manifest_path=tmp_path / "unkeyed.csv",
+    )
+    assert intervals[-1] == 3.1
+
+
+def test_main_runs_semantic_scholar_concurrently_with_arxiv_stages(monkeypatch, capsys):
+    s2_started = threading.Event()
+    arxiv_started = threading.Event()
+    s2_active = threading.Event()
+    events = []
+
+    def fake_s2(base_ids):
+        events.append("s2-start")
+        print("Semantic Scholar: start")
+        s2_started.set()
+        assert arxiv_started.wait(timeout=2)
+        events.append("s2-active")
+        print("Semantic Scholar: active")
+        s2_active.set()
+
+    def fake_discover(base_ids):
+        assert s2_started.wait(timeout=2)
+        events.append("arxiv-start")
+        print("arXiv: discover")
+        arxiv_started.set()
+        assert s2_active.wait(timeout=2)
+        events.append("arxiv-active")
+        print("arXiv: active")
+        return {"2603.10580": ["2603.10580v1"]}
+
+    monkeypatch.setattr(crawler, "assigned_base_ids", lambda: ["2603.10580"])
+    monkeypatch.setattr(crawler, "_load_histories", lambda ids: {})
+    monkeypatch.setattr(crawler, "crawl_semantic_scholar", fake_s2)
+    monkeypatch.setattr(crawler, "discover_assigned_versions", fake_discover)
+    monkeypatch.setattr(
+        crawler, "crawl_arxiv_metadata", lambda histories: events.append("metadata")
+    )
+    monkeypatch.setattr(
+        crawler, "download_sources", lambda histories: events.append("source")
+    )
+
+    assert crawler.main([
+        "--discover", "--metadata", "--source", "--semantic-scholar", "--limit", "20"
+    ]) == 0
+    assert events.index("s2-start") < events.index("arxiv-start")
+    assert events.index("s2-active") < events.index("arxiv-active")
+    assert events.index("metadata") < events.index("source")
+    log_lines = capsys.readouterr().out.splitlines()
+    assert log_lines.index("Semantic Scholar: start") < log_lines.index(
+        "arXiv: discover"
+    )
+    assert log_lines.index("Semantic Scholar: active") < log_lines.index(
+        "arXiv: active"
+    )
 
 
 def test_semantic_scholar_fetches_all_pages():
